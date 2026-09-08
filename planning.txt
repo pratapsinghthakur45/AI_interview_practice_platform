@@ -1,0 +1,1275 @@
+# AI Interview Platform — InterviewAI
+
+## 1. Project Goal
+
+InterviewAI is an AI-powered interview practice platform where candidates can practice realistic interviews before their actual interview.
+
+The platform should:
+
+* Ask questions based on the candidate's profile.
+* Use the candidate's resume as interview context.
+* Optionally use a Job Description (JD).
+* Allow Technical and HR/Behavioral interviews.
+* Allow Easy, Medium, and Hard difficulty.
+* Analyze the candidate's answers.
+* Ask relevant follow-up/counter questions.
+* Adapt subsequent questions based on previous answers.
+* Avoid repeatedly asking the same questions.
+* Generate a detailed performance scorecard after the interview.
+
+The goal is **not** to simply call an LLM and generate random questions.
+
+The goal is to build an **adaptive, context-aware, multi-agent interview system**.
+
+---
+
+# 2. High-Level Architecture
+
+```text
+                         USER
+                           │
+                           ▼
+                    React Frontend
+                           │
+                           ▼
+                  Node.js / Express
+                     Main Backend
+                           │
+              ┌────────────┼────────────┐
+              │            │            │
+              ▼            ▼            ▼
+           MongoDB       Redis      AI Service
+                                      │
+                                  FastAPI/Python
+                                      │
+                                  LangGraph
+                                      │
+                     ┌────────────────┼────────────────┐
+                     │                │                │
+                     ▼                ▼                ▼
+              Technical Agent     HR Agent       Scorer Agent
+                     │                │                │
+                     └────────────────┼────────────────┘
+                                      │
+                                      ▼
+                                      LLM
+                              OpenAI / Gemini /
+                                   Groq
+```
+
+---
+
+# 3. Main User Flow
+
+```text
+USER
+ │
+ ▼
+Signup / Login
+ │
+ ▼
+Dashboard
+ │
+ ▼
+Start Practice Interview
+ │
+ ▼
+Select Interview Type
+ │
+ ├── Technical
+ │
+ ├── HR / Behavioral
+ │
+ └── Mixed (optional future feature)
+ │
+ ▼
+Select Difficulty
+ │
+ ├── Easy
+ ├── Medium
+ └── Hard
+ │
+ ▼
+Upload Resume
+ │
+ ▼
+Paste Job Description (Optional)
+ │
+ ▼
+Configure Interview
+ │
+ ▼
+Create Interview Session
+ │
+ ▼
+AI generates first question
+ │
+ ▼
+Candidate answers
+ │
+ ▼
+AI analyzes answer
+ │
+ ├── Evaluate answer
+ ├── Identify strengths
+ ├── Identify weaknesses
+ ├── Decide whether follow-up is needed
+ └── Decide next question
+ │
+ ▼
+Next Question
+ │
+ ▼
+Candidate answers
+ │
+ ▼
+Repeat
+ │
+ ▼
+Interview completed
+ │
+ ▼
+Scorer Agent
+ │
+ ▼
+Final Scorecard
+```
+
+---
+
+# 4. Authentication
+
+## Purpose
+
+Allow users to create accounts and securely access their interviews.
+
+### Routes
+
+```text
+POST /api/auth/signup
+POST /api/auth/login
+GET  /api/auth/me
+```
+
+### Signup
+
+```text
+POST /api/auth/signup
+```
+
+Creates a new user.
+
+### Login
+
+```text
+POST /api/auth/login
+```
+
+Authenticates the user and returns JWT.
+
+### Current User
+
+```text
+GET /api/auth/me
+```
+
+Returns the authenticated user's basic information.
+
+### Authentication Technologies
+
+```text
+bcrypt
+JWT
+Express middleware
+MongoDB
+Mongoose
+```
+
+---
+
+# 5. User Profile
+
+The profile contains information that can help generate personalized interview questions.
+
+### Routes
+
+```text
+GET /api/users/profile
+PUT /api/users/profile
+```
+
+Possible profile information:
+
+```text
+User
+├── name
+├── email
+├── targetRole
+├── experienceLevel
+├── skills
+├── education
+└── preferences
+```
+
+Do not put too much information here initially.
+
+Resume will contain much more detailed candidate information.
+
+---
+
+# 6. Resume System
+
+The candidate can upload one or multiple resumes.
+
+### Routes
+
+```text
+POST   /api/resumes
+GET    /api/resumes
+GET    /api/resumes/:id
+DELETE /api/resumes/:id
+```
+
+### Initial responsibility of Node.js
+
+```text
+Resume PDF
+     │
+     ▼
+Multer
+     │
+     ▼
+Store file
+     │
+     ▼
+Save metadata in MongoDB
+```
+
+Example:
+
+```text
+Resume
+├── user
+├── fileName
+├── fileUrl / filePath
+├── originalName
+├── status
+├── createdAt
+└── updatedAt
+```
+
+Later the AI service will process:
+
+```text
+PDF
+ ↓
+Text extraction
+ ↓
+Chunking
+ ↓
+Embeddings
+ ↓
+Vector database
+```
+
+---
+
+# 7. Job Description System
+
+JD is OPTIONAL.
+
+The user can paste a JD when preparing for a specific job.
+
+### Routes
+
+```text
+POST   /api/job-descriptions
+GET    /api/job-descriptions
+GET    /api/job-descriptions/:id
+PUT    /api/job-descriptions/:id
+DELETE /api/job-descriptions/:id
+```
+
+Example:
+
+```text
+JobDescription
+├── user
+├── title
+├── company
+├── description
+├── createdAt
+└── updatedAt
+```
+
+If the user doesn't provide a JD:
+
+```text
+Resume + Profile + Interview Type + Difficulty
+```
+
+can still be used.
+
+If the user provides a JD:
+
+```text
+Resume + Profile + JD + Interview Type + Difficulty
+```
+
+will be used.
+
+---
+
+# 8. Interview Configuration
+
+Before starting an interview, the user selects:
+
+```text
+Interview Type
+----------------
+Technical
+HR / Behavioral
+
+Difficulty
+----------------
+Easy
+Medium
+Hard
+
+Resume
+----------------
+Selected Resume
+
+Job Description
+----------------
+Optional JD
+
+Interview Duration
+----------------
+Example: 15 / 30 / 45 minutes
+```
+
+You can add duration later. It is not necessary for the first MVP.
+
+---
+
+# 9. Interview System
+
+This represents an actual interview session.
+
+### Routes
+
+```text
+POST /api/interviews
+GET  /api/interviews
+GET  /api/interviews/:id
+POST /api/interviews/:id/start
+POST /api/interviews/:id/end
+```
+
+### Creating an interview
+
+```text
+POST /api/interviews
+```
+
+Example request:
+
+```text
+{
+    resumeId,
+    jobDescriptionId,
+    interviewType: "technical",
+    difficulty: "medium"
+}
+```
+
+The backend creates an interview session.
+
+Example:
+
+```text
+Interview
+├── user
+├── resume
+├── jobDescription
+├── type
+├── difficulty
+├── status
+├── startedAt
+├── completedAt
+└── createdAt
+```
+
+Possible status:
+
+```text
+created
+in-progress
+completed
+cancelled
+```
+
+---
+
+# 10. Interview Conversation
+
+This is an important part missing from the original plan.
+
+You need to store the questions and candidate answers.
+
+Instead of putting everything directly inside the Interview document, use an `InterviewMessage` or `InterviewTurn` collection.
+
+Recommended:
+
+```text
+InterviewTurn
+├── interview
+├── question
+├── answer
+├── questionType
+├── sequence
+├── evaluation
+└── createdAt
+```
+
+Example:
+
+```text
+Interview
+   │
+   ├── Turn 1
+   │      ├── Question
+   │      └── Answer
+   │
+   ├── Turn 2
+   │      ├── Question
+   │      └── Answer
+   │
+   └── Turn 3
+          ├── Question
+          └── Answer
+```
+
+This gives the AI the conversation history it needs.
+
+---
+
+# 11. Interview Question Flow
+
+Once the AI system is implemented:
+
+```text
+Interview Created
+       │
+       ▼
+AI receives:
+       │
+       ├── Resume
+       ├── JD
+       ├── User Profile
+       ├── Interview Type
+       ├── Difficulty
+       └── Previous Conversation
+       │
+       ▼
+Interview Agent
+       │
+       ▼
+Technical Agent / HR Agent
+       │
+       ▼
+Generate Question
+       │
+       ▼
+Candidate Answers
+       │
+       ▼
+Analyze Answer
+       │
+       ├── Correctness
+       ├── Relevance
+       ├── Depth
+       ├── Communication
+       └── Missing concepts
+       │
+       ▼
+Should follow-up be asked?
+       │
+       ├── YES
+       │    ↓
+       │  Follow-up Question
+       │
+       └── NO
+            ↓
+        New Topic
+       │
+       ▼
+Repeat
+```
+
+---
+
+# 12. Technical Interview Agent
+
+The Technical Agent should not randomly generate questions.
+
+It should consider:
+
+```text
+Candidate Resume
++
+Job Description
++
+Candidate Profile
++
+Difficulty
++
+Previous Questions
++
+Previous Answers
+```
+
+For example:
+
+Resume:
+
+```text
+MERN E-commerce Project
+JWT
+MongoDB
+Razorpay
+```
+
+JD:
+
+```text
+Node.js
+REST API
+MongoDB
+Authentication
+```
+
+The agent might ask:
+
+```text
+Explain how you implemented authentication
+in your MERN application.
+```
+
+After the candidate answers:
+
+```text
+Candidate Answer
+       ↓
+Answer Evaluation
+       ↓
+Missing concept identified:
+JWT verification middleware
+       ↓
+Follow-up question
+```
+
+This is the behavior you want.
+
+---
+
+# 13. HR / Behavioral Agent
+
+The HR agent focuses on:
+
+```text
+Communication
+Behavior
+Leadership
+Teamwork
+Problem solving
+Conflict handling
+Career motivation
+Projects
+Experience
+```
+
+It can use resume and JD context.
+
+Example:
+
+```text
+Resume:
+Built an e-commerce application.
+
+HR Agent:
+Tell me about a difficult problem you faced
+while building your e-commerce project and how
+you solved it.
+```
+
+The next question should depend on the candidate's answer.
+
+---
+
+# 14. Interview Orchestrator
+
+This is the agent responsible for controlling the interview flow.
+
+```text
+                    Interview State
+                          │
+                          ▼
+                    Orchestrator
+                          │
+             ┌────────────┴────────────┐
+             │                         │
+             ▼                         ▼
+      Technical Agent             HR Agent
+             │                         │
+             └────────────┬────────────┘
+                          ▼
+                  Candidate Answer
+                          │
+                          ▼
+                   Answer Analysis
+                          │
+                          ▼
+                    Orchestrator
+                          │
+                          ▼
+                  Next Question
+```
+
+The orchestrator decides:
+
+* Which agent should act.
+* Whether a follow-up is needed.
+* Whether to move to a new topic.
+* Whether the interview should continue.
+* When the interview should end.
+
+This is where LangGraph becomes useful.
+
+---
+
+# 15. Scorer Agent
+
+At the end:
+
+```text
+Complete Interview
+        │
+        ▼
+   Scorer Agent
+        │
+        ▼
+Analyze all answers
+        │
+        ▼
+Final Scorecard
+```
+
+Possible scoring categories:
+
+```text
+Technical Knowledge
+Problem Solving
+Answer Relevance
+Communication
+Depth of Knowledge
+Role Alignment
+Project Understanding
+Confidence
+```
+
+For HR:
+
+```text
+Communication
+Situation Handling
+Leadership
+Teamwork
+Problem Solving
+Clarity
+Behavioral Competency
+```
+
+Example final result:
+
+```text
+Overall Score: 78/100
+
+Technical Knowledge: 82
+Problem Solving: 75
+Communication: 80
+Project Knowledge: 84
+Role Alignment: 71
+```
+
+The score should include evidence from the candidate's actual answers.
+
+---
+
+# 16. Interview Results
+
+Create a result/scorecard system.
+
+### Routes
+
+```text
+GET /api/interviews/:id/result
+GET /api/interviews/:id/feedback
+```
+
+Possible result:
+
+```text
+Interview Result
+├── interview
+├── overallScore
+├── categoryScores
+├── strengths
+├── weaknesses
+├── recommendations
+└── createdAt
+```
+
+---
+
+# 17. AI Service
+
+The Node.js backend should NOT contain all AI logic.
+
+Create a separate Python service:
+
+```text
+ai-service/
+```
+
+Using:
+
+```text
+Python
+FastAPI
+LangGraph
+LLM API
+ChromaDB
+```
+
+Architecture:
+
+```text
+Node.js
+   │
+   │ HTTP
+   ▼
+FastAPI
+   │
+   ▼
+LangGraph
+   │
+   ├── Orchestrator
+   ├── Technical Agent
+   ├── HR Agent
+   └── Scorer Agent
+```
+
+---
+
+# 18. Resume + JD Context / RAG
+
+Later, implement:
+
+```text
+Resume
+   ↓
+PDF Parser
+   ↓
+Text
+   ↓
+Chunking
+   ↓
+Embeddings
+   ↓
+ChromaDB
+```
+
+Same for JD.
+
+Then:
+
+```text
+Candidate Answer
+       ↓
+Retrieve relevant information
+       ↓
+Resume / JD context
+       ↓
+Agent
+       ↓
+Next question
+```
+
+This allows the interview to be context-aware.
+
+---
+
+# 19. Redis
+
+Redis should be added after the core AI interview works.
+
+Use it for:
+
+```text
+Interview session state
+Agent state
+Caching
+Temporary data
+Frequently requested context
+```
+
+Do not make Redis a dependency of your first backend milestone.
+
+---
+
+# 20. Frontend
+
+After the backend/API foundation is stable:
+
+```text
+React + Vite
+Tailwind CSS
+Axios
+React Router
+```
+
+Pages:
+
+```text
+/login
+/signup
+/dashboard
+/profile
+/resumes
+/job-descriptions
+/interview/setup
+/interview/:id
+/interview/:id/result
+/interview/history
+```
+
+Dashboard:
+
+```text
+Welcome back!
+
+Start Practicing
+----------------
+
+Technical Interview
+HR Interview
+
+Difficulty
+----------------
+Easy | Medium | Hard
+
+Recent Interviews
+----------------
+Technical - Medium - 82%
+HR - Easy - 76%
+Technical - Hard - 69%
+```
+
+---
+
+# 21. Final Backend API Structure
+
+Your backend should eventually look approximately like this:
+
+```text
+/api/auth
+    POST   /signup
+    POST   /login
+    GET    /me
+
+/api/users
+    GET    /profile
+    PUT    /profile
+
+/api/resumes
+    POST   /
+    GET    /
+    GET    /:id
+    DELETE /:id
+
+/api/job-descriptions
+    POST   /
+    GET    /
+    GET    /:id
+    PUT    /:id
+    DELETE /:id
+
+/api/interviews
+    POST   /
+    GET    /
+    GET    /:id
+    POST   /:id/start
+    POST   /:id/end
+
+/api/interviews/:id/turns
+    GET    /
+    POST   /
+
+/api/interviews/:id/result
+    GET    /
+
+/api/ai
+    POST   /generate-question
+    POST   /evaluate-answer
+    POST   /next-question
+```
+
+However, the `/api/ai` routes are something we'll design carefully later. **Don't build them yet.**
+
+---
+
+# 22. Recommended Database Models
+
+Your initial MongoDB models:
+
+```text
+User
+Resume
+JobDescription
+Interview
+InterviewTurn
+InterviewResult
+```
+
+Later:
+
+```text
+AgentSession
+```
+
+if we discover that we actually need a separate persistent agent-session model.
+
+---
+
+# 23. Development Milestones
+
+## Milestone 1 — Backend Foundation
+
+```text
+Node.js
+Express
+MongoDB
+Mongoose
+dotenv
+CORS
+Error handling
+Project structure
+```
+
+## Milestone 2 — Authentication
+
+```text
+User model
+Signup
+Login
+bcrypt
+JWT
+Auth middleware
+Protected routes
+```
+
+## Milestone 3 — Candidate Data
+
+```text
+Profile
+Resume upload
+Resume management
+JD management
+```
+
+## Milestone 4 — Interview Management
+
+```text
+Interview configuration
+Technical / HR
+Easy / Medium / Hard
+Create interview
+Start interview
+End interview
+Interview history
+```
+
+## Milestone 5 — Conversation System
+
+```text
+Interview turns
+Questions
+Answers
+Conversation history
+```
+
+At this point you have a **working non-AI interview platform backend**.
+
+## Milestone 6 — Python + FastAPI
+
+Learn:
+
+```text
+Python basics required for project
+Virtual environment
+FastAPI
+Pydantic
+HTTP APIs
+Node ↔ Python communication
+```
+
+## Milestone 7 — LLM
+
+Learn:
+
+```text
+LLMs
+Prompting
+Context
+Structured output
+LLM API
+```
+
+Build the first intelligent question generator.
+
+## Milestone 8 — Resume Processing
+
+```text
+PDF
+ ↓
+Text extraction
+ ↓
+Clean text
+```
+
+## Milestone 9 — Embeddings + ChromaDB
+
+```text
+Resume/JD
+ ↓
+Chunks
+ ↓
+Embeddings
+ ↓
+ChromaDB
+```
+
+## Milestone 10 — RAG
+
+```text
+Question
+ ↓
+Retrieve relevant resume/JD information
+ ↓
+LLM
+ ↓
+Context-aware question
+```
+
+## Milestone 11 — LangGraph
+
+Build:
+
+```text
+Interview State
+      ↓
+Orchestrator
+      ↓
+Technical / HR Agent
+      ↓
+Answer Evaluation
+      ↓
+Follow-up / New Question
+      ↓
+Repeat
+```
+
+## Milestone 12 — Scoring
+
+Build:
+
+```text
+Scorer Agent
+ ↓
+Category Scores
+ ↓
+Evidence
+ ↓
+Feedback
+ ↓
+Final Scorecard
+```
+
+## Milestone 13 — Redis
+
+Add:
+
+```text
+Session state
+Caching
+Agent memory
+```
+
+## Milestone 14 — React Frontend
+
+Build:
+
+```text
+Authentication
+Dashboard
+Resume
+JD
+Interview Setup
+Interview Interface
+Results
+History
+```
+
+## Milestone 15 — Docker
+
+Containerize:
+
+```text
+Frontend
+Backend
+AI Service
+MongoDB
+Redis
+```
+
+## Milestone 16 — Deployment
+
+Deploy the complete application and configure:
+
+```text
+Environment variables
+Production database
+AI API keys
+CORS
+Security
+Logging
+```
+
+---
+
+# 24. Your Immediate Goal
+
+Do NOT start building the AI agents yet.
+
+Your first target is:
+
+```text
+                BACKEND
+                   │
+                   ▼
+          Express + MongoDB
+                   │
+                   ▼
+               User Model
+                   │
+          ┌────────┴────────┐
+          ▼                 ▼
+       Signup             Login
+          │                 │
+          └────────┬────────┘
+                   ▼
+                 JWT
+                   │
+                   ▼
+            Auth Middleware
+                   │
+                   ▼
+          Protected API Routes
+```
+
+After this works, move to:
+
+```text
+Profile
+   ↓
+Resume
+   ↓
+Job Description
+   ↓
+Interview Configuration
+   ↓
+Interview
+   ↓
+Interview Turns
+```
+
+Only after this foundation is working should we introduce the AI service.
+
+---
+
+# 25. The Core Idea of InterviewAI
+
+The most important thing to remember while building the project is:
+
+```text
+This is NOT:
+
+User
+ ↓
+LLM
+ ↓
+Random Question
+```
+
+It is:
+
+```text
+                 USER
+                   │
+          ┌────────┴────────┐
+          ▼                 ▼
+       Resume              JD
+          │                 │
+          └────────┬────────┘
+                   ▼
+             User Profile
+                   │
+                   ▼
+          Interview Configuration
+          ├── Type
+          └── Difficulty
+                   │
+                   ▼
+          Interview Orchestrator
+                   │
+             ┌─────┴─────┐
+             ▼           ▼
+        Technical       HR
+          Agent         Agent
+             │           │
+             └─────┬─────┘
+                   ▼
+             AI Question
+                   │
+                   ▼
+             User Answer
+                   │
+                   ▼
+           Answer Evaluation
+                   │
+                   ▼
+          Follow-up / New Topic
+                   │
+                   ▼
+                Repeat
+                   │
+                   ▼
+             Scorer Agent
+                   │
+                   ▼
+             Scorecard
+```
+
+**This adaptive loop is the heart of your project.**
