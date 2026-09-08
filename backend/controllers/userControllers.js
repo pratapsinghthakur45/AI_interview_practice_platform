@@ -157,7 +157,7 @@ export const changePassword = async (req, res) => {
       return res.status(401).json({
         message: "Invalid current password",
       });
-    }
+    }//this is
 
     // hash new password
     const hashedPassword = await bcryptjs.hash(newPassword, 10);
