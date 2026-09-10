@@ -15,6 +15,7 @@ app.use(express.json());
 
 import userRoutes from './routes/userRoutes.js';
 //resume api
+import resumeRoutes from './routes/resumeRoutes.js';
 
 //user routes import
 
@@ -23,6 +24,9 @@ app.get('/',(req,res) =>{
 })
 
 app.use('/user',userRoutes);
+app.use('/user',resumeRoutes,express.static("uploads"));
+
+
 
 
 const PORT = process.env.PORT || 3000;
