@@ -51,7 +51,7 @@ export const uploadResume = async (req, res) => {
     }
 
     // Get user ID from authentication middleware (req.user) or body
-    const userId = req.user?._id || req.body.userId;
+    const userId = req.user?.id || req.body.userId;
 
     if (!userId) {
       return res.status(400).json({ message: "User ID is required." });
@@ -80,8 +80,11 @@ export const uploadResume = async (req, res) => {
   }
 };
 
+//controller to get resume
 export const getResume = async (req, res) => {
   try {
+
+    
     const resume = await Resume.findById(req.params.id);
 
     if (!resume) {
@@ -108,5 +111,99 @@ export const getResume = async (req, res) => {
     res.sendFile(absolutePath);
   } catch (error) {
     res.status(500).json({ message: "Error retrieving resume", error: error.message });
+  }
+};
+
+
+
+// ... existing uploadResume and getResume controllers ...
+
+// Update Resume (Replaces old file on disk if a new file is uploaded)
+export const updateResume = async (req, res) => {
+  try {
+    const resumeId = req.params.id;
+    const userId = req.user?.id || req.body.userId; // Assumes auth middleware sets req.user
+
+    // 1. Find the existing resume record belonging to the user
+    const existingResume = await Resume.findOne({ _id: resumeId, user: userId });
+
+    if (!existingResume) {
+      // Clean up newly uploaded temporary file if ownership/record check fails
+      if (req.file) {
+        fs.unlinkSync(req.file.path);
+      }
+      return res.status(404).json({ message: "Resume not found or unauthorized" });
+    }
+
+    // 2. If a new file is uploaded, delete the old file from disk
+    if (req.file) {
+      const oldPath = path.resolve(existingResume.filePath);
+      if (fs.existsSync(oldPath)) {
+        fs.unlinkSync(oldPath);
+      }
+
+      // Update file fields with new Multer file details
+      existingResume.originalName = req.file.originalname;
+      existingResume.filePath = req.file.path;
+      existingResume.mimeType = req.file.mimetype;
+    }
+
+    // 3. Save the updated record to MongoDB
+    const updatedResume = await existingResume.save();
+
+    res.status(200).json({
+      message: "Resume updated successfully",
+      data: updatedResume,
+    });
+  } catch (error) {
+    // Cleanup newly uploaded file on internal error
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    res.status(500).json({
+      message: "Failed to update resume",
+      error: error.message,
+    });
+  }
+};
+
+
+
+// ... existing controllers (uploadResume, getResume, updateResume) ...
+
+// Delete Resume Controller
+export const deleteResume = async (req, res) => {
+  try {
+    const resumeId = req.params.id;
+    const userId = req.user.id;
+
+    if (!userId) {
+      return res.status(400).json({ message: "User ID is required." });
+    }
+
+    // 1. Find the resume document in MongoDB
+    const resume = await Resume.findOne({ _id: resumeId, user: userId });
+
+    if (!resume) {
+      return res.status(404).json({ message: "Resume not found or unauthorized" });
+    }
+
+    // 2. Delete the physical PDF file from disk
+    const absolutePath = path.resolve(resume.filePath);
+    if (fs.existsSync(absolutePath)) {
+      fs.unlinkSync(absolutePath);
+    }
+
+    // 3. Delete the record from MongoDB
+    await Resume.findByIdAndDelete(resumeId);
+
+    res.status(200).json({
+      message: "Resume deleted successfully",
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to delete resume",
+      error: error.message,
+    });
   }
 };
