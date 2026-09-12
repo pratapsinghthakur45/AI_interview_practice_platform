@@ -12,10 +12,14 @@ app.use(cors());
 
 app.use(express.json());
 
-
+//user api
 import userRoutes from './routes/userRoutes.js';
+
 //resume api
 import resumeRoutes from './routes/resumeRoutes.js';
+
+//jd api
+import jobDescriptionRoute from './routes/jobDescriptionRoute.js'
 
 //user routes import
 
@@ -25,6 +29,8 @@ app.get('/',(req,res) =>{
 
 app.use('/user',userRoutes);
 app.use('/user',resumeRoutes,express.static("uploads"));
+app.use('/user',jobDescriptionRoute);
+
 
 
 
