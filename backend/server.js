@@ -21,6 +21,12 @@ import resumeRoutes from './routes/resumeRoutes.js';
 //jd api
 import jobDescriptionRoute from './routes/jobDescriptionRoute.js'
 
+//interview api 
+import interviewRoutes from './routes/interviewRoutes.js';
+
+//interview turn api
+import innterviewTurnRoutes from './routes/interviewTurnRoutes.js';
+
 //user routes import
 
 app.get('/',(req,res) =>{
@@ -30,7 +36,8 @@ app.get('/',(req,res) =>{
 app.use('/user',userRoutes);
 app.use('/user',resumeRoutes,express.static("uploads"));
 app.use('/user',jobDescriptionRoute);
-
+app.use('/user',interviewRoutes);
+app.use('/user',innterviewTurnRoutes);
 
 
 

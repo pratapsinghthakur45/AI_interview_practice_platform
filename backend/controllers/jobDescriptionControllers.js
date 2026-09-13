@@ -83,7 +83,7 @@ export const getJD = async (req, res) => {
     }
 };
 
-//deleted jd successfully
+//delete jd 
 export const deleteJD = async (req,res) => {
     try {
         const userId = req.user.id;
@@ -105,6 +105,7 @@ export const deleteJD = async (req,res) => {
     }
 }
 
+//update jd
 export const updateJD = async (req,res) => {
     try {
         const userId = req.user.id;
